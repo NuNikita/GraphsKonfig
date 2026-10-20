@@ -101,19 +101,19 @@ def parse_nuspec(content):
     namespace = root.tag.partition("}")[0] + "}" if "}" in root.tag else ""
     if root.tag != namespace + "package":
         raise RepositoryError("ожидается корневой элемент package в .nuspec")
-    metadata = root.find(namespace + "metadata")
+    metadata = root.find("{*}metadata")
     if metadata is None:
         raise RepositoryError("в .nuspec отсутствует metadata")
-    dependencies = metadata.find(namespace + "dependencies")
+    dependencies = metadata.find("{*}dependencies")
     if dependencies is None:
         return []
     result = []
     for element in dependencies:
-        if element.tag == namespace + "dependency":
+        if element.tag.rpartition("}")[-1] == "dependency":
             result.append(read_dependency(element, ""))
-        elif element.tag == namespace + "group":
+        elif element.tag.rpartition("}")[-1] == "group":
             framework = element.get("targetFramework", "")
-            for dependency in element.findall(namespace + "dependency"):
+            for dependency in element.findall("{*}dependency"):
                 result.append(read_dependency(dependency, framework))
     return result
 

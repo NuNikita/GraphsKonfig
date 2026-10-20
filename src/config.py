@@ -95,7 +95,7 @@ def filter_text(value):
 def create_parser():
     """Describe the six configurable parameters of variant 17."""
     parser = argparse.ArgumentParser(
-        description="Вариант 17, этап 2: прямые зависимости NuGet-пакета.",
+        description="Вариант 17, этап 3: граф зависимостей, DFS без рекурсии.",
         allow_abbrev=False,
     )
     parser.add_argument("--package", required=True, help="имя пакета")

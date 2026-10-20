@@ -1,32 +1,30 @@
-"""Print direct dependencies of a requested NuGet package version."""
+"""Build and print the reachable NuGet or test-repository dependency graph."""
 
 import sys
 
 from config import parse_config
-from nuget import RepositoryError, format_dependency, get_dependencies
+from graph import build_graph, format_graph
+from nuget import RepositoryError
+from nuget_repository import NugetRepository
+from test_repository import TestRepository
 
 ERROR_EXIT = 2
 SUCCESS_EXIT = 0
 
 
 def main(argv=None):
-    """Validate configuration, fetch dependencies and report CLI errors."""
+    """Validate configuration, build the graph and report repository errors."""
     config = parse_config(argv)
-    if config.test_mode:
-        message = "Ошибка: тестовый репозиторий относится к этапу 3."
-        print(message, file=sys.stderr)
-        return ERROR_EXIT
     try:
-        dependencies = get_dependencies(
-            config.repository, config.package, config.version
-        )
+        source = TestRepository if config.test_mode else NugetRepository
+        repository = source(config.repository)
+        root = repository.root(config.package, config.version)
+        graph = build_graph(root, repository, config.filter)
     except RepositoryError as error:
         print(f"Ошибка: {error}", file=sys.stderr)
         return ERROR_EXIT
-    if not dependencies:
-        print("Прямых зависимостей нет.")
-    for dependency in dependencies:
-        print(format_dependency(dependency))
+    for line in format_graph(graph):
+        print(line)
     return SUCCESS_EXIT
 
 

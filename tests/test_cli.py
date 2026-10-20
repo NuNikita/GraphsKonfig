@@ -70,23 +70,26 @@ class CliHarness:
 
 
 class CliTests(CliHarness, unittest.TestCase):
-    """Check configuration errors and successful stage-two CLI output."""
+    """Check configuration errors and successful graph CLI output."""
 
-    def test_prints_dependencies_instead_of_configuration(self):
+    def test_prints_leaf_graph_instead_of_configuration(self):
         """Report a leaf package without creating the future image."""
         result = self.run_cli({"--filter": None})
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
         self.assertEqual(result.stderr, "")
-        self.assertEqual(result.stdout, "Прямых зависимостей нет.\n")
+        self.assertEqual(result.stdout, "Newtonsoft.Json@13.0.3:\n")
         self.assertFalse((self.workdir / OUTPUT).exists())
 
-    def test_defers_test_repository_to_stage_three(self):
-        """Explain that graph-file parsing belongs to stage three."""
+    def test_reads_test_repository(self):
+        """Build an uppercase graph from a local repository file."""
         result = self.run_cli(
             {"--package": "A", "--repository": "repository.txt"},
             ["--test-mode"],
         )
-        self.assert_cli_error(result, "этапу 3")
+        self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
+        self.assertEqual(result.stdout, "A: B\nB:\n")
+        self.assertEqual(result.stderr, "")
+        self.assertFalse((self.workdir / OUTPUT).exists())
 
     def test_required_parameters(self):
         """Report every missing mandatory parameter."""
@@ -111,7 +114,7 @@ class CliTests(CliHarness, unittest.TestCase):
                 )
 
     def test_valid_versions_and_filter(self):
-        """Accept version forms and the unused future filtering option."""
+        """Accept version forms and filters that do not match the root."""
         versions = {
             "1": "1.0.0", "1.2": "1.2.0", "1.2.3": "1.2.3",
             "1.2.3.4": "1.2.3.4", "1.0-beta.1+build": "1.0.0-beta.1",
@@ -128,7 +131,9 @@ class CliTests(CliHarness, unittest.TestCase):
                 self.assertEqual(
                     result.returncode, SUCCESS_EXIT, result.stderr
                 )
-                self.assertEqual(result.stdout, "Прямых зависимостей нет.\n")
+                self.assertEqual(
+                    result.stdout, f"Newtonsoft.Json@{release}:\n"
+                )
 
     def test_invalid_repository_urls(self):
         """Reject local paths, unsafe URL forms and malformed ports."""

@@ -11,7 +11,8 @@ from test_cli import CliHarness, SUCCESS_EXIT
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from nuget import (
-    Dependency, RepositoryError, fetch_bytes, normalized_version, parse_nuspec,
+    Dependency, RepositoryError, fetch_bytes, get_dependencies,
+    normalized_version, parse_nuspec,
 )
 
 
@@ -66,6 +67,20 @@ class ManifestTests(unittest.TestCase):
         ):
             self.assertEqual(parse_nuspec(content), [])
 
+    def test_namespace_declared_only_on_metadata(self):
+        """Accept older manifests whose root does not have a namespace."""
+        leaf = b'''<package>
+          <metadata xmlns="http://schemas.microsoft.com/packaging/2010/07/"
+          /></package>'''
+        self.assertEqual(parse_nuspec(leaf), [])
+        content = b'''<package><metadata xmlns="urn:nuget"><dependencies>
+          <dependency id="B" version="1"/>
+          <group targetFramework="net8.0"><dependency id="C" version="2"/>
+          </group></dependencies></metadata></package>'''
+        self.assertEqual(parse_nuspec(content), [
+            Dependency("B", "1", ""), Dependency("C", "2", "net8.0"),
+        ])
+
     def test_invalid_manifests(self):
         """Reject invalid XML, missing metadata and invalid package names."""
         for content in (
@@ -89,7 +104,7 @@ class RepositoryTests(CliHarness, unittest.TestCase):
     """Exercise the real CLI against controlled NuGet HTTP responses."""
 
     def test_only_requested_version_and_direct_dependencies(self):
-        """Request exactly the index and root manifest; ignore the filter."""
+        """Build from exactly the root manifest and exclude matching edges."""
         path = "/content/newtonsoft.json/1.2.3/newtonsoft.json.nuspec"
         self.repository.routes[path] = (200, b'''<package><metadata>
           <dependencies><group targetFramework="net8.0">
@@ -99,8 +114,19 @@ class RepositoryTests(CliHarness, unittest.TestCase):
         result = self.run_cli({"--version": "01.02.003.0+build",
                                "--filter": "Microsoft."})
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
-        self.assertEqual(result.stdout, "Microsoft.B\t[2.0,3.0)\tnet8.0\n")
+        self.assertEqual(result.stdout, "Newtonsoft.Json@1.2.3:\n")
         self.assertEqual(self.repository.requests, ["/v3/index.json", path])
+
+    def test_direct_dependency_api_is_preserved(self):
+        """Keep the stage-two fetch API available without traversing edges."""
+        path = "/content/example/1.0.0/example.nuspec"
+        self.repository.routes[path] = (200, b'''<package><metadata>
+          <dependencies><dependency id="B" version="[2.0,3.0)"/>
+          </dependencies></metadata></package>''')
+        result = get_dependencies(
+            self.repository.url + "/v3/index.json", "Example", "1"
+        )
+        self.assertEqual(result, [Dependency("B", "[2.0,3.0)", "")])
 
     def test_repository_errors(self):
         """Report missing resources and malformed index/manifest data."""

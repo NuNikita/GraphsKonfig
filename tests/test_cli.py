@@ -210,7 +210,7 @@ class CliTests(CliHarness, unittest.TestCase):
             capture_output=True, text=True, check=False,
         )
         self.assertEqual(result.returncode, SUCCESS_EXIT)
-        for option in (*self.options, "--test-mode"):
+        for option in (*self.options, "--test-mode", "--load-order"):
             self.assertIn(option, result.stdout)
 
 

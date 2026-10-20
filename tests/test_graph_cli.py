@@ -74,8 +74,8 @@ class FileGraphCliTests(CliHarness, unittest.TestCase):
         self.assertEqual(result.stdout, "A:\n")
 
 
-class HttpGraphCliTests(CliHarness, unittest.TestCase):
-    """Visit real-format NuGet manifests transitively without live services."""
+class HttpGraphHarness(CliHarness):
+    """Share real-format NuGet fixtures for graph and loading-order tests."""
 
     def setUp(self):
         """Reset the HTTP fixture and request a small root package."""
@@ -106,6 +106,10 @@ class HttpGraphCliTests(CliHarness, unittest.TestCase):
         self.repository.routes[path] = (
             200, json.dumps({"versions": versions}).encode()
         )
+
+
+class HttpGraphCliTests(HttpGraphHarness, unittest.TestCase):
+    """Visit real-format NuGet manifests transitively without live services."""
 
     def test_transitive_dfs_cycle_and_case_insensitive_identity(self):
         """Visit A-B-D before C, preserve cycles and cache shared requests."""

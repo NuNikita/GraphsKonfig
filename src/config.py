@@ -93,9 +93,9 @@ def filter_text(value):
 
 
 def create_parser():
-    """Describe the six configurable parameters of variant 17."""
+    """Describe variant 17 configuration and the stage-four output mode."""
     parser = argparse.ArgumentParser(
-        description="Вариант 17, этап 3: граф зависимостей, DFS без рекурсии.",
+        description="Вариант 17, этап 4: граф и порядок загрузки зависимостей.",
         allow_abbrev=False,
     )
     parser.add_argument("--package", required=True, help="имя пакета")
@@ -111,6 +111,10 @@ def create_parser():
     )
     parser.add_argument(
         "--filter", default="", help="подстрока исключаемых пакетов"
+    )
+    parser.add_argument(
+        "--load-order", action="store_true",
+        help="вывести порядок загрузки: зависимости раньше самого пакета",
     )
     return parser
 

@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from repository_server import RepositoryServer
+
 ROOT = Path(__file__).resolve().parent.parent
 CLI = ROOT / "src" / "main.py"
 ERROR_EXIT = 2
@@ -13,8 +15,21 @@ SUCCESS_EXIT = 0
 OUTPUT = "graph.svg"
 
 
-class CliTests(unittest.TestCase):
-    """Check observable behavior without contacting real repositories."""
+class CliHarness:
+    """Share CLI execution helpers and a local NuGet server."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Serve an empty real-format manifest to successful CLI tests."""
+        cls.repository = RepositoryServer()
+        cls.repository.routes[
+            "/content/newtonsoft.json/13.0.3/newtonsoft.json.nuspec"
+        ] = (200, b"<package><metadata/></package>")
+
+    @classmethod
+    def tearDownClass(cls):
+        """Release the local repository server."""
+        cls.repository.close()
 
     def setUp(self):
         """Create an isolated working directory and a test repository."""
@@ -24,7 +39,7 @@ class CliTests(unittest.TestCase):
         (self.workdir / "repository.txt").write_text("A: B\nB:\n")
         self.options = {
             "--package": "Newtonsoft.Json",
-            "--repository": "https://api.nuget.org/v3/index.json",
+            "--repository": self.repository.url + "/v3/index.json",
             "--version": "13.0.3",
             "--output": OUTPUT,
             "--filter": "",
@@ -43,6 +58,7 @@ class CliTests(unittest.TestCase):
             capture_output=True,
             text=True,
             check=False,
+            timeout=10,
         )
 
     def assert_cli_error(self, result, option):
@@ -52,29 +68,25 @@ class CliTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertEqual(result.stdout, "")
 
-    def test_prints_all_six_parameters(self):
-        """Print all values, including defaults, without creating an image."""
+
+class CliTests(CliHarness, unittest.TestCase):
+    """Check configuration errors and successful stage-two CLI output."""
+
+    def test_prints_dependencies_instead_of_configuration(self):
+        """Report a leaf package without creating the future image."""
         result = self.run_cli({"--filter": None})
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
         self.assertEqual(result.stderr, "")
-        self.assertEqual(result.stdout.splitlines(), [
-            "package=Newtonsoft.Json",
-            "repository=https://api.nuget.org/v3/index.json",
-            "test_mode=False",
-            "version=13.0.3",
-            "output=graph.svg",
-            "filter=",
-        ])
+        self.assertEqual(result.stdout, "Прямых зависимостей нет.\n")
         self.assertFalse((self.workdir / OUTPUT).exists())
 
-    def test_accepts_test_mode(self):
-        """Accept a readable local repository and an uppercase package."""
+    def test_defers_test_repository_to_stage_three(self):
+        """Explain that graph-file parsing belongs to stage three."""
         result = self.run_cli(
             {"--package": "A", "--repository": "repository.txt"},
             ["--test-mode"],
         )
-        self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
-        self.assertIn("test_mode=True\n", result.stdout)
+        self.assert_cli_error(result, "этапу 3")
 
     def test_required_parameters(self):
         """Report every missing mandatory parameter."""
@@ -99,16 +111,24 @@ class CliTests(unittest.TestCase):
                 )
 
     def test_valid_versions_and_filter(self):
-        """Accept version forms and return the selected filtering substring."""
-        for value in ("1", "1.2", "1.2.3", "1.2.3.4", "1.0-beta.1+build"):
+        """Accept version forms and the unused future filtering option."""
+        versions = {
+            "1": "1.0.0", "1.2": "1.2.0", "1.2.3": "1.2.3",
+            "1.2.3.4": "1.2.3.4", "1.0-beta.1+build": "1.0.0-beta.1",
+        }
+        for value, release in versions.items():
             with self.subTest(value=value):
+                manifest = f"/content/newtonsoft.json/{release}/"
+                self.repository.routes[manifest + "newtonsoft.json.nuspec"] = (
+                    200, b"<package><metadata/></package>"
+                )
                 result = self.run_cli({
                     "--version": value, "--filter": "Microsoft."
                 })
                 self.assertEqual(
                     result.returncode, SUCCESS_EXIT, result.stderr
                 )
-                self.assertIn("filter=Microsoft.\n", result.stdout)
+                self.assertEqual(result.stdout, "Прямых зависимостей нет.\n")
 
     def test_invalid_repository_urls(self):
         """Reject local paths, unsafe URL forms and malformed ports."""
@@ -158,7 +178,7 @@ class CliTests(unittest.TestCase):
                 )
 
     def test_existing_output_is_preserved(self):
-        """Check the configuration stage never overwrites an existing file."""
+        """Check that fetching dependencies never overwrites an image."""
         output = self.workdir / OUTPUT
         output.write_text("existing content", encoding="utf-8")
         result = self.run_cli()

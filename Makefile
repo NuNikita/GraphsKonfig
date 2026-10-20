@@ -9,4 +9,4 @@ test:
 	$(PYTHON) -m unittest discover -s tests -v
 
 build:
-	$(PYTHON) -m py_compile src/config.py src/main.py
+	$(PYTHON) -m py_compile src/config.py src/nuget.py src/main.py

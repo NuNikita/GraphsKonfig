@@ -1,4 +1,4 @@
-"""Parse and validate the command-line configuration for stage 1."""
+"""Parse and validate the command-line configuration."""
 
 import argparse
 import os
@@ -95,7 +95,7 @@ def filter_text(value):
 def create_parser():
     """Describe the six configurable parameters of variant 17."""
     parser = argparse.ArgumentParser(
-        description="Вариант 17, этап 1: проверка и вывод конфигурации.",
+        description="Вариант 17, этап 2: прямые зависимости NuGet-пакета.",
         allow_abbrev=False,
     )
     parser.add_argument("--package", required=True, help="имя пакета")

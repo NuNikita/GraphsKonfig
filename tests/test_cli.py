@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack, closing
 from pathlib import Path
 
 from repository_server import RepositoryServer
@@ -18,24 +19,38 @@ OUTPUT = "graph.svg"
 class CliHarness:
     """Share CLI execution helpers and a local NuGet server."""
 
-    @classmethod
-    def setUpClass(cls):
-        """Serve an empty real-format manifest to successful CLI tests."""
-        cls.repository = RepositoryServer()
-        cls.repository.routes[
+    def run(self, result=None):
+        """Run a test with isolated resources and close them on every exit."""
+        with ExitStack() as resources:
+            try:
+                self.repository = resources.enter_context(
+                    closing(RepositoryServer())
+                )
+                directory = resources.enter_context(
+                    tempfile.TemporaryDirectory()
+                )
+                self.prepare_test(Path(directory))
+            except Exception:
+                return self.fixture_error(result)
+            return super().run(result)
+
+    def fixture_error(self, result):
+        """Report preparation failures through the normal unittest result."""
+        if result is None:
+            result = self.defaultTestResult()
+        result.startTest(self)
+        try:
+            result.addError(self, sys.exc_info())
+        finally:
+            result.stopTest(self)
+        return result
+
+    def prepare_test(self, directory):
+        """Prepare the default manifest, working directory and CLI options."""
+        self.repository.routes[
             "/content/newtonsoft.json/13.0.3/newtonsoft.json.nuspec"
         ] = (200, b"<package><metadata/></package>")
-
-    @classmethod
-    def tearDownClass(cls):
-        """Release the local repository server."""
-        cls.repository.close()
-
-    def setUp(self):
-        """Create an isolated working directory and a test repository."""
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        self.workdir = Path(directory.name)
+        self.workdir = directory
         (self.workdir / "repository.txt").write_text("A: B\nB:\n")
         self.options = {
             "--package": "Newtonsoft.Json",
@@ -212,6 +227,56 @@ class CliTests(CliHarness, unittest.TestCase):
         self.assertEqual(result.returncode, SUCCESS_EXIT)
         for option in (*self.options, "--test-mode"):
             self.assertIn(option, result.stdout)
+
+
+class HarnessLifecycleTests(unittest.TestCase):
+    """Check that fixture changes preserve execution and resource cleanup."""
+
+    def test_cleanup_after_success_and_failure(self):
+        """Close the server and remove the directory even when a test fails."""
+        class FixtureCase(CliHarness, unittest.TestCase):
+            """Run a controlled test with the same fixture as CLI tests."""
+
+            def test_fixture(self):
+                """Verify live resources and optionally trigger a failure."""
+                self.assertTrue(self.workdir.is_dir())
+                self.assertTrue(self.repository.thread.is_alive())
+                if self.fail_test:
+                    self.fail("controlled failure")
+
+        for fail_test in (False, True):
+            with self.subTest(fail_test=fail_test):
+                case = FixtureCase("test_fixture")
+                case.fail_test = fail_test
+                result = case.run()
+                self.assertEqual(result.testsRun, 1)
+                self.assertEqual(bool(result.failures), fail_test)
+                self.assertEqual(result.errors, [])
+                self.assertFalse(case.workdir.exists())
+                self.assertFalse(case.repository.thread.is_alive())
+
+    def test_cleanup_after_preparation_error(self):
+        """Record setup errors without running the test or leaking resources."""
+        class BrokenFixture(CliHarness, unittest.TestCase):
+            """Fail after creating the usual fixture resources."""
+
+            def prepare_test(self, directory):
+                """Raise a controlled error during test preparation."""
+                super().prepare_test(directory)
+                raise RuntimeError("controlled preparation error")
+
+            def test_fixture(self):
+                """Fail if an unsuccessfully prepared test is executed."""
+                self.fail("test must not run")
+
+        case = BrokenFixture("test_fixture")
+        result = case.run()
+        self.assertEqual(result.testsRun, 1)
+        self.assertEqual(len(result.errors), 1)
+        self.assertEqual(result.failures, [])
+        self.assertIn("controlled preparation error", result.errors[0][1])
+        self.assertFalse(case.workdir.exists())
+        self.assertFalse(case.repository.thread.is_alive())
 
 
 if __name__ == "__main__":

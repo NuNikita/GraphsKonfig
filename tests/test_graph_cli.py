@@ -77,9 +77,9 @@ class FileGraphCliTests(CliHarness, unittest.TestCase):
 class HttpGraphCliTests(CliHarness, unittest.TestCase):
     """Visit real-format NuGet manifests transitively without live services."""
 
-    def setUp(self):
+    def prepare_test(self, directory):
         """Reset the HTTP fixture and request a small root package."""
-        super().setUp()
+        super().prepare_test(directory)
         self.repository.routes.clear()
         self.repository.requests.clear()
         self.repository.set_index()

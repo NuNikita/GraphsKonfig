@@ -77,9 +77,9 @@ class FileGraphCliTests(CliHarness, unittest.TestCase):
 class HttpGraphHarness(CliHarness):
     """Share real-format NuGet fixtures for graph and loading-order tests."""
 
-    def setUp(self):
+    def prepare_test(self, directory):
         """Reset the HTTP fixture and request a small root package."""
-        super().setUp()
+        super().prepare_test(directory)
         self.repository.routes.clear()
         self.repository.requests.clear()
         self.repository.set_index()

@@ -11,8 +11,12 @@ class Package:
     version: str = ""
 
     def label(self):
-        """Include versions for NuGet vertices and omit them for test data."""
+        """Display a package name together with its version when provided."""
         return f"{self.name}@{self.version}" if self.version else self.name
+
+    def display_label(self):
+        """Display the version in parentheses for test-repository output."""
+        return f"{self.name} ({self.version})" if self.version else self.name
 
 
 def children(package, repository, excluded):
@@ -46,10 +50,13 @@ def build_graph(root, repository, excluded=""):
     return graph
 
 
-def format_graph(graph):
+def format_graph(graph, *, test_mode=False):
     """Yield adjacency lists in discovery order, including empty vertices."""
     if not graph:
         yield "Граф пуст: исходный пакет исключён фильтром."
+    label = Package.display_label if test_mode else Package.label
+    separator = ", " if test_mode else " "
+    delimiter = " →" if test_mode else ":"
     for package, dependencies in graph.items():
-        targets = " ".join(dependency.label() for dependency in dependencies)
-        yield f"{package.label()}: {targets}".rstrip()
+        targets = separator.join(label(target) for target in dependencies)
+        yield f"{label(package)}{delimiter} {targets}".rstrip()

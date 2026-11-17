@@ -51,7 +51,7 @@ class CliHarness:
             "/content/newtonsoft.json/13.0.3/newtonsoft.json.nuspec"
         ] = (200, b"<package><metadata/></package>")
         self.workdir = directory
-        (self.workdir / "repository.txt").write_text("A: B\nB:\n")
+        (self.workdir / "repository.txt").write_text("A@1: B@1\nB@1:\n")
         self.options = {
             "--package": "Newtonsoft.Json",
             "--repository": self.repository.url + "/v3/index.json",
@@ -98,11 +98,12 @@ class CliTests(CliHarness, unittest.TestCase):
     def test_reads_test_repository(self):
         """Build an uppercase graph from a local repository file."""
         result = self.run_cli(
-            {"--package": "A", "--repository": "repository.txt"},
+            {"--package": "A", "--version": "1",
+             "--repository": "repository.txt"},
             ["--test-mode"],
         )
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
-        self.assertEqual(result.stdout, "A: B\nB:\n")
+        self.assertEqual(result.stdout, "A (1.0.0) → B (1.0.0)\nB (1.0.0) →\n")
         self.assertEqual(result.stderr, "")
         self.assertFalse((self.workdir / OUTPUT).exists())
 

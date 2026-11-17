@@ -23,7 +23,7 @@ def main(argv=None):
     except RepositoryError as error:
         print(f"Ошибка: {error}", file=sys.stderr)
         return ERROR_EXIT
-    for line in format_graph(graph):
+    for line in format_graph(graph, test_mode=config.test_mode):
         print(line)
     return SUCCESS_EXIT
 

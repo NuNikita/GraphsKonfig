@@ -1,25 +1,32 @@
-"""Read uppercase package adjacency lists from a local UTF-8 text file."""
+"""Read versioned package adjacency lists from a local UTF-8 text file."""
 
 import re
 from pathlib import Path
 
-from config import TEST_PACKAGE_PATTERN
+from config import TEST_PACKAGE_PATTERN, package_version
 from graph import Package
-from nuget import Dependency, RepositoryError
+from nuget import Dependency, RepositoryError, normalized_version
+
+
+def parse_package(value):
+    """Parse an uppercase package name and a concrete, normalized version."""
+    name, separator, version = value.partition("@")
+    if not separator or not re.fullmatch(TEST_PACKAGE_PATTERN, name):
+        raise ValueError(f"ожидается имя из букв A-Z и версия: {value!r}")
+    return Package(name, normalized_version(package_version(version)))
 
 
 def parse_line(line, number):
-    """Read one 'A: B C' declaration and report its source line on errors."""
-    name, separator, targets = line.partition(":")
-    name = name.strip()
-    dependencies = targets.split()
-    names = [name, *dependencies]
-    valid = all(re.fullmatch(TEST_PACKAGE_PATTERN, item) for item in names)
-    if not separator or not valid:
-        raise RepositoryError(
-            f"строка {number}: ожидается 'A: B C', имена из букв A-Z"
-        )
-    return name, list(dict.fromkeys(dependencies))
+    """Read a versioned declaration and report errors with its line number."""
+    source, separator, targets = line.partition(":")
+    try:
+        if not separator:
+            raise ValueError("ожидается строка вида A@1.0.0: B@2.0.0")
+        package = parse_package(source.strip())
+        dependencies = [parse_package(target) for target in targets.split()]
+    except ValueError as error:
+        raise RepositoryError(f"строка {number}: {error}") from error
+    return package, list(dict.fromkeys(dependencies))
 
 
 def parse_repository(content):
@@ -28,14 +35,15 @@ def parse_repository(content):
     for number, line in enumerate(content.splitlines(), start=1):
         if not line.strip():
             continue
-        name, targets = parse_line(line, number)
-        if name in graph:
-            raise RepositoryError(f"строка {number}: повторное описание {name}")
-        graph[name] = targets
+        package, targets = parse_line(line, number)
+        if package in graph:
+            message = f"строка {number}: повторное описание {package.label()}"
+            raise RepositoryError(message)
+        graph[package] = targets
     missing = {target for targets in graph.values() for target in targets}
     missing.difference_update(graph)
     if missing:
-        names = ", ".join(sorted(missing))
+        names = ", ".join(sorted(package.label() for package in missing))
         raise RepositoryError(f"не описаны пакеты: {names}")
     return graph
 
@@ -52,16 +60,24 @@ class TestRepository:
         self.graph = parse_repository(content)
 
     def root(self, name, version):
-        """Require an existing root; test vertices do not have versions."""
-        if name not in self.graph:
-            message = f"пакет {name} не найден в тестовом репозитории"
+        """Look up the exact requested package version in the local file."""
+        try:
+            package = parse_package(f"{name}@{version}")
+        except ValueError as error:
+            raise RepositoryError(str(error)) from error
+        if package not in self.graph:
+            label = package.label()
+            message = f"пакет {label} не найден в тестовом репозитории"
             raise RepositoryError(message)
-        return Package(name)
+        return package
 
     def dependencies(self, package):
         """Return the declared edges in their original order."""
-        return [Dependency(name, "", "") for name in self.graph[package.name]]
+        return [
+            Dependency(target.name, target.version, "")
+            for target in self.graph[package]
+        ]
 
     def resolve(self, dependency):
-        """Map an unversioned test edge to its uppercase vertex."""
-        return Package(dependency.name)
+        """Return the exact version named in a validated dependency edge."""
+        return Package(dependency.name, dependency.version)

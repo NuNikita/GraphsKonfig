@@ -9,22 +9,25 @@ from test_cli import CliHarness, OUTPUT, SUCCESS_EXIT
 class FileGraphCliTests(CliHarness, unittest.TestCase):
     """Demonstrate test-file branches, cycles, exclusion and useful errors."""
 
-    def run_graph(self, content, excluded="", name="A"):
+    def run_graph(self, content, excluded="", name="A", version="1"):
         """Write one repository fixture and run it through the actual CLI."""
         (self.workdir / "repository.txt").write_text(content, encoding="utf-8")
         return self.run_cli({
             "--package": name, "--repository": "repository.txt",
-            "--filter": excluded,
+            "--filter": excluded, "--version": version,
         }, ["--test-mode"])
 
     def test_diamond_cycle_self_loop_and_leaf(self):
         """Show full graph edges rather than just a spanning tree."""
         cases = [
-            ("A: B C\nB: D\nC: D\nD:\nX:\n",
-             "A: B C\nB: D\nD:\nC: D\n"),
-            ("A: B\nB: C\nC: A\n", "A: B\nB: C\nC: A\n"),
-            ("A: A\n", "A: A\n"),
-            ("A:\n", "A:\n"),
+            ("A@1: B@1 C@1\nB@1: D@2\nC@1: D@2\nD@2:\nX@1:\n",
+             "A (1.0.0) → B (1.0.0), C (1.0.0)\nB (1.0.0) → D (2.0.0)\n"
+             "D (2.0.0) →\nC (1.0.0) → D (2.0.0)\n"),
+            ("A@1: B@2\nB@2: C@3\nC@3: A@1\n",
+             "A (1.0.0) → B (2.0.0)\nB (2.0.0) → C (3.0.0)\n"
+             "C (3.0.0) → A (1.0.0)\n"),
+            ("A@1: A@1\n", "A (1.0.0) → A (1.0.0)\n"),
+            ("A@1:\n", "A (1.0.0) →\n"),
         ]
         for content, expected in cases:
             with self.subTest(content=content):
@@ -35,13 +38,13 @@ class FileGraphCliTests(CliHarness, unittest.TestCase):
 
     def test_filter_prunes_transitive_branch(self):
         """Remove B and D, whose only reachable path passes through B."""
-        result = self.run_graph("A: B C\nB: D\nC:\nD:\n", "B")
+        result = self.run_graph("A@1: B@2 C@1\nB@2: D@1\nC@1:\nD@1:\n", "B")
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
-        self.assertEqual(result.stdout, "A: C\nC:\n")
+        self.assertEqual(result.stdout, "A (1.0.0) → C (1.0.0)\nC (1.0.0) →\n")
 
     def test_excluded_root(self):
         """Print an explicit empty-graph result for an excluded root."""
-        result = self.run_graph("A: B\nB:\n", "A")
+        result = self.run_graph("A@1: B@1\nB@1:\n", "A")
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
         self.assertEqual(
             result.stdout, "Граф пуст: исходный пакет исключён фильтром.\n"
@@ -50,9 +53,9 @@ class FileGraphCliTests(CliHarness, unittest.TestCase):
     def test_file_format_errors(self):
         """Reject invalid text, empty repositories and missing roots."""
         cases = [
-            ("", "не найден"), ("B:\n", "не найден"),
-            ("A: B\n", "не описаны"), ("A:\nA:\n", "повторное"),
-            ("A: bad\n", "строка 1"), ("A B\n", "строка 1"),
+            ("", "не найден"), ("B@1:\n", "не найден"),
+            ("A@1: B@1\n", "не описаны"), ("A@1:\nA@1:\n", "повторное"),
+            ("A@1: B\n", "строка 1"), ("A@1 B@1\n", "строка 1"),
         ]
         for content, message in cases:
             with self.subTest(content=content):
@@ -69,9 +72,37 @@ class FileGraphCliTests(CliHarness, unittest.TestCase):
 
     def test_utf8_bom(self):
         """Accept text files saved by editors with a UTF-8 byte-order mark."""
-        result = self.run_graph("\ufeffA:\n")
+        result = self.run_graph("\ufeffA@1:\n")
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
-        self.assertEqual(result.stdout, "A:\n")
+        self.assertEqual(result.stdout, "A (1.0.0) →\n")
+
+    def test_selects_root_by_version(self):
+        """Changing only the requested version changes the reachable graph."""
+        content = "A@1: B@1\nA@2: B@2\nB@1:\nB@2: C@1\nC@1:\n"
+        first = self.run_graph(content, version="1.0.0")
+        second = self.run_graph(content, version="2")
+        self.assertEqual(first.returncode, SUCCESS_EXIT, first.stderr)
+        self.assertEqual(second.returncode, SUCCESS_EXIT, second.stderr)
+        self.assertEqual(first.stdout, "A (1.0.0) → B (1.0.0)\nB (1.0.0) →\n")
+        self.assertEqual(
+            second.stdout, "A (2.0.0) → B (2.0.0)\nB (2.0.0) → C (1.0.0)\n"
+            "C (1.0.0) →\n"
+        )
+        missing = self.run_graph(content, version="3.0")
+        self.assert_cli_error(missing, "пакет A@3.0.0 не найден")
+
+    def test_keeps_two_versions_of_one_dependency(self):
+        """Keep both vertices and follow their edges independently."""
+        content = "A@1: B@1 B@2\nB@1: C@1\nB@2: D@1\nC@1:\nD@1:\n"
+        result = self.run_graph(content)
+        self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
+        self.assertEqual(result.stdout, (
+            "A (1.0.0) → B (1.0.0), B (2.0.0)\nB (1.0.0) → C (1.0.0)\n"
+            "C (1.0.0) →\nB (2.0.0) → D (1.0.0)\nD (1.0.0) →\n"
+        ))
+        filtered = self.run_graph(content, excluded="B")
+        self.assertEqual(filtered.returncode, SUCCESS_EXIT, filtered.stderr)
+        self.assertEqual(filtered.stdout, "A (1.0.0) →\n")
 
 
 class HttpGraphCliTests(CliHarness, unittest.TestCase):

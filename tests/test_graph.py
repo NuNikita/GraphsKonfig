@@ -92,13 +92,21 @@ class TestFileParserTests(unittest.TestCase):
 
     def test_whitespace_duplicates_and_forward_references(self):
         """Allow blank lines, multi-letter names and deduplicate edges."""
-        self.assertEqual(parse_repository("\n A : BB C BB\nBB:\nC: A\n"), {
-            "A": ["BB", "C"], "BB": [], "C": ["A"],
+        content = "\n A@1 : BB@1 C@2 BB@1.0\nBB@1:\nC@2: A@1.0\n"
+        root = Package("A", "1.0.0")
+        first = Package("BB", "1.0.0")
+        second = Package("C", "2.0.0")
+        self.assertEqual(parse_repository(content), {
+            root: [first, second], first: [], second: [root],
         })
 
     def test_invalid_format_and_names(self):
         """Reject missing separators, lowercase, digits and punctuation."""
-        for content in ("A B", ": A", "a:", "A: b", "A1:", "A: B:C"):
+        cases = (
+            "A@1 B@1", ": A@1", "a@1:", "A@1: b@1", "A1@1:",
+            "A:", "A@1: B", "A@bad:", "A@1: B@bad", "A@1: B@1:C@1",
+        )
+        for content in cases:
             with self.subTest(content=content):
                 with self.assertRaisesRegex(RepositoryError, "строка 1"):
                     parse_repository(content)
@@ -106,12 +114,12 @@ class TestFileParserTests(unittest.TestCase):
     def test_duplicate_declaration(self):
         """Report the conflicting declaration with its line number."""
         with self.assertRaisesRegex(RepositoryError, "строка 2.*повторное"):
-            parse_repository("A:\nA:\n")
+            parse_repository("A@1:\nA@1.0.0:\n")
 
     def test_undeclared_package(self):
         """Require explicit declarations even for leaf packages."""
-        with self.assertRaisesRegex(RepositoryError, "не описаны пакеты: B"):
-            parse_repository("A: B\n")
+        with self.assertRaisesRegex(RepositoryError, r"не описаны.*B@2\.0\.0"):
+            parse_repository("A@1: B@2\nB@1:\n")
 
 
 if __name__ == "__main__":

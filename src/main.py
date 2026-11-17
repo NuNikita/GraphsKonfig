@@ -21,8 +21,10 @@ def main(argv=None):
         repository = source(config.repository)
         root = repository.root(config.package, config.version)
         graph = build_graph(root, repository, config.filter)
-        formatter = format_load_order if config.load_order else format_graph
-        lines = formatter(graph)
+        if config.load_order:
+            lines = format_load_order(graph)
+        else:
+            lines = format_graph(graph, test_mode=config.test_mode)
     except (RepositoryError, DependencyCycleError) as error:
         print(f"Ошибка: {error}", file=sys.stderr)
         return ERROR_EXIT

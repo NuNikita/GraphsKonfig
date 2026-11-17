@@ -9,20 +9,22 @@ from test_graph_cli import HttpGraphHarness
 class FileLoadOrderCliTests(CliHarness, unittest.TestCase):
     """Check the explicit mode, filtering and atomic cycle failure via CLI."""
 
-    def run_order(self, content, excluded="", name="A"):
+    def run_order(self, content, excluded="", name="A", version="1"):
         """Write a UTF-8 repository and request its dependency-first order."""
         (self.workdir / "repository.txt").write_text(content, encoding="utf-8")
         return self.run_cli({
             "--package": name, "--repository": "repository.txt",
-            "--filter": excluded,
+            "--filter": excluded, "--version": version,
         }, ["--test-mode", "--load-order"])
 
     def test_chain_diamond_leaf_and_unreachable_cycle(self):
         """Show valid orders without creating the stage-five output file."""
         cases = [
-            ("A: B C\nB: C\nC:\n", "C\nB\nA\n"),
-            ("A: B C B\nB: D\nC: D\nD:\nX: X\n", "D\nB\nC\nA\n"),
-            ("A:\n", "A\n"),
+            ("A@1: B@1 C@1\nB@1: C@1\nC@1:\n",
+             "C@1.0.0\nB@1.0.0\nA@1.0.0\n"),
+            ("A@1: B@1 C@1 B@1\nB@1: D@2\nC@1: D@2\nD@2:\nX@1: X@1\n",
+             "D@2.0.0\nB@1.0.0\nC@1.0.0\nA@1.0.0\n"),
+            ("A@1:\n", "A@1.0.0\n"),
         ]
         for content, expected in cases:
             with self.subTest(content=content):
@@ -34,10 +36,10 @@ class FileLoadOrderCliTests(CliHarness, unittest.TestCase):
 
     def test_filter_and_excluded_root(self):
         """Retain reachable shared leaves and explain an excluded root."""
-        content = "A: B C\nB: D\nC: D\nD:\n"
+        content = "A@1: B@2 C@1\nB@2: D@3\nC@1: D@3\nD@3:\n"
         result = self.run_order(content, "B")
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
-        self.assertEqual(result.stdout, "D\nC\nA\n")
+        self.assertEqual(result.stdout, "D@3.0.0\nC@1.0.0\nA@1.0.0\n")
         result = self.run_order(content, "A")
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
         self.assertEqual(result.stdout, (
@@ -47,8 +49,9 @@ class FileLoadOrderCliTests(CliHarness, unittest.TestCase):
     def test_cycles_never_print_a_partial_order(self):
         """Reject a self-loop and a cycle found after finishing a valid leaf."""
         cases = [
-            ("A: A\n", "A -> A"),
-            ("A: D B\nD:\nB: C\nC: B\n", "B -> C -> B"),
+            ("A@1: A@1\n", "A@1.0.0 -> A@1.0.0"),
+            ("A@1: D@1 B@2\nD@1:\nB@2: C@3\nC@3: B@2\n",
+             "B@2.0.0 -> C@3.0.0 -> B@2.0.0"),
         ]
         output = self.workdir / OUTPUT
         output.write_text("existing image", encoding="utf-8")
@@ -56,6 +59,26 @@ class FileLoadOrderCliTests(CliHarness, unittest.TestCase):
             with self.subTest(content=content):
                 self.assert_cli_error(self.run_order(content), path)
                 self.assertEqual(output.read_text(), "existing image")
+
+    def test_selects_root_version_and_rejects_missing_version(self):
+        """Use the requested version's edges when computing the order."""
+        content = "A@1: B@1\nA@2: C@2\nB@1:\nC@2:\n"
+        first = self.run_order(content, version="1.0.0")
+        second = self.run_order(content, version="2")
+        self.assertEqual(first.returncode, SUCCESS_EXIT, first.stderr)
+        self.assertEqual(second.returncode, SUCCESS_EXIT, second.stderr)
+        self.assertEqual(first.stdout, "B@1.0.0\nA@1.0.0\n")
+        self.assertEqual(second.stdout, "C@2.0.0\nA@2.0.0\n")
+        self.assert_cli_error(
+            self.run_order(content, version="3"), "пакет A@3.0.0 не найден"
+        )
+
+    def test_distinguishes_versions_of_one_dependency(self):
+        """An edge between two versions of one package is not a cycle."""
+        content = "A@1: B@1 B@2\nB@1: B@2\nB@2:\n"
+        result = self.run_order(content)
+        self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
+        self.assertEqual(result.stdout, "B@2.0.0\nB@1.0.0\nA@1.0.0\n")
 
     def test_load_order_flag_rejects_boolean_values(self):
         """Handle explicit values as normal argument errors."""

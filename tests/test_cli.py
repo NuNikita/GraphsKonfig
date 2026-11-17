@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from contextlib import ExitStack, closing
 from pathlib import Path
+from xml.etree import ElementTree
 
 from repository_server import RepositoryServer
 
@@ -88,12 +89,12 @@ class CliTests(CliHarness, unittest.TestCase):
     """Check configuration errors and successful graph CLI output."""
 
     def test_prints_leaf_graph_instead_of_configuration(self):
-        """Report a leaf package without creating the future image."""
+        """Report a leaf package and save its SVG image."""
         result = self.run_cli({"--filter": None})
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.stdout, "Newtonsoft.Json@13.0.3:\n")
-        self.assertFalse((self.workdir / OUTPUT).exists())
+        self.assertTrue((self.workdir / OUTPUT).is_file())
 
     def test_reads_test_repository(self):
         """Build an uppercase graph from a local repository file."""
@@ -105,7 +106,7 @@ class CliTests(CliHarness, unittest.TestCase):
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
         self.assertEqual(result.stdout, "A (1.0.0) → B (1.0.0)\nB (1.0.0) →\n")
         self.assertEqual(result.stderr, "")
-        self.assertFalse((self.workdir / OUTPUT).exists())
+        self.assertTrue((self.workdir / OUTPUT).is_file())
 
     def test_required_parameters(self):
         """Report every missing mandatory parameter."""
@@ -198,13 +199,14 @@ class CliTests(CliHarness, unittest.TestCase):
                     self.run_cli({"--output": value}), "--output"
                 )
 
-    def test_existing_output_is_preserved(self):
-        """Check that fetching dependencies never overwrites an image."""
+    def test_existing_output_is_replaced(self):
+        """Replace an existing output with a valid SVG after rendering."""
         output = self.workdir / OUTPUT
         output.write_text("existing content", encoding="utf-8")
         result = self.run_cli()
         self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
-        self.assertEqual(output.read_text(encoding="utf-8"), "existing content")
+        svg = ElementTree.parse(output).getroot()
+        self.assertEqual(svg.tag, "{http://www.w3.org/2000/svg}svg")
 
     def test_invalid_filters(self):
         """Reject blank filters and control characters in filters."""
@@ -226,7 +228,8 @@ class CliTests(CliHarness, unittest.TestCase):
             capture_output=True, text=True, check=False,
         )
         self.assertEqual(result.returncode, SUCCESS_EXIT)
-        for option in (*self.options, "--test-mode", "--load-order"):
+        flags = "--test-mode", "--load-order", "--plantuml"
+        for option in (*self.options, *flags):
             self.assertIn(option, result.stdout)
 
 

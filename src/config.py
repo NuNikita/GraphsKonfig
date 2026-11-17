@@ -79,7 +79,7 @@ def output_file(value):
     if path.exists() and not path.is_file():
         raise ValueError("путь изображения должен указывать на файл")
     target = path if path.exists() else path.parent
-    if not os.access(target, os.W_OK):
+    if not os.access(path.parent, os.W_OK) or not os.access(target, os.W_OK):
         raise ValueError("нет прав записи по пути изображения")
     return value
 
@@ -93,9 +93,9 @@ def filter_text(value):
 
 
 def create_parser():
-    """Describe variant 17 configuration and the stage-four output mode."""
+    """Describe variant 17 configuration and mutually exclusive output modes."""
     parser = argparse.ArgumentParser(
-        description="Вариант 17, этап 4: граф и порядок загрузки зависимостей.",
+        description="Вариант 17, этап 5: визуализация зависимостей NuGet.",
         allow_abbrev=False,
     )
     parser.add_argument("--package", required=True, help="имя пакета")
@@ -107,14 +107,19 @@ def create_parser():
     )
     parser.add_argument("--version", required=True, help="версия пакета")
     parser.add_argument(
-        "--output", required=True, help="путь будущего SVG-изображения"
+        "--output", required=True, help="путь SVG-изображения"
     )
     parser.add_argument(
         "--filter", default="", help="подстрока исключаемых пакетов"
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--load-order", action="store_true",
-        help="вывести порядок загрузки: зависимости раньше самого пакета",
+        help="вывести порядок загрузки без создания SVG",
+    )
+    mode.add_argument(
+        "--plantuml", action="store_true",
+        help="вывести исходник PlantUML вместо списка смежности",
     )
     return parser
 
@@ -144,4 +149,8 @@ def parse_config(argv=None):
         TEST_PACKAGE_PATTERN, config.package
     ):
         parser.error("--package: в тестовом режиме нужны большие буквы A-Z")
+    if config.test_mode and not config.load_order:
+        source = Path(config.repository).expanduser().resolve()
+        if source == Path(config.output).expanduser().resolve():
+            parser.error("--output: путь совпадает с тестовым репозиторием")
     return config

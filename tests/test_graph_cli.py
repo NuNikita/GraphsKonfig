@@ -34,7 +34,7 @@ class FileGraphCliTests(CliHarness, unittest.TestCase):
                 result = self.run_graph(content)
                 self.assertEqual(result.returncode, SUCCESS_EXIT, result.stderr)
                 self.assertEqual(result.stdout, expected)
-                self.assertFalse((self.workdir / OUTPUT).exists())
+                self.assertTrue((self.workdir / OUTPUT).is_file())
 
     def test_filter_prunes_transitive_branch(self):
         """Remove B and D, whose only reachable path passes through B."""

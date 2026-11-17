@@ -18,7 +18,7 @@ class FileLoadOrderCliTests(CliHarness, unittest.TestCase):
         }, ["--test-mode", "--load-order"])
 
     def test_chain_diamond_leaf_and_unreachable_cycle(self):
-        """Show valid orders without creating the stage-five output file."""
+        """Show valid orders without creating an SVG in load-order mode."""
         cases = [
             ("A@1: B@1 C@1\nB@1: C@1\nC@1:\n",
              "C@1.0.0\nB@1.0.0\nA@1.0.0\n"),
